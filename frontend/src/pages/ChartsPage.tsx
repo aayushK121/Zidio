@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import CreateChartModal from '../components/CreateChartModal';
 
 // Register Chart.js components
 ChartJS.register(
@@ -99,7 +100,7 @@ const ChartsPage: React.FC = () => {
     maintainAspectRatio: false,
   };
 
-  // Fetch charts and files
+  // Fetch charts and files (without auto-generation)
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -108,10 +109,7 @@ const ChartsPage: React.FC = () => {
           'Authorization': `Bearer ${token}`
         };
 
-        // Auto-generate charts for all uploaded files
-        await fetch('/api/charts/autogen', { method: 'POST', headers });
-
-        // Fetch charts
+        // Only fetch existing charts - no auto-generation
         const chartsResponse = await fetch('/api/charts', { headers });
         if (chartsResponse.ok) {
           const chartsData = await chartsResponse.json();
@@ -158,23 +156,125 @@ const ChartsPage: React.FC = () => {
   };
 
   const renderChart = (chart: ChartItem, height = '200px') => {
-    const chartProps = {
-      data: chart.chartConfig,
-      options: chart.chartType === 'pie' || chart.chartType === 'doughnut' ? pieOptions : chartOptions,
-      height
-    };
+    if (!chart.chartConfig || !Array.isArray(chart.chartConfig.labels) || !Array.isArray(chart.chartConfig.datasets)) {
+      return <div className="text-red-500 text-center">Invalid or missing chart data</div>;
+    }
 
+    const baseData = chart.chartConfig;
+    
     switch (chart.chartType) {
       case 'bar':
-        return <Bar {...chartProps} />;
+        return <Bar data={baseData} options={chartOptions as any} height={height} />;
       case 'line':
-        return <Line {...chartProps} />;
+        return <Line data={baseData} options={chartOptions as any} height={height} />;
       case 'pie':
-        return <Pie {...chartProps} />;
+        return <Pie data={baseData} options={pieOptions as any} height={height} />;
       case 'doughnut':
-        return <Doughnut {...chartProps} />;
+        return <Doughnut data={baseData} options={pieOptions as any} height={height} />;
       default:
-        return <Bar {...chartProps} />;
+        return <Bar data={baseData} options={chartOptions as any} height={height} />;
+    }
+  };
+
+  const handleDeleteChart = async (chartId: string, chartTitle: string) => {
+    if (!window.confirm(`Are you sure you want to delete the chart "${chartTitle}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/charts/${chartId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (response.ok) {
+        setCharts(prev => prev.filter(chart => chart._id !== chartId));
+        setError('');
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to delete chart');
+      }
+    } catch (err) {
+      console.error('Chart delete error:', err);
+      setError('Failed to delete chart. Please try again.');
+    }
+  };
+
+  const handleDownloadChart = async (chartId: string, chartTitle: string) => {
+    try {
+      const response = await fetch(`/api/charts/${chartId}/download`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${chartTitle}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        setError('Failed to download chart');
+      }
+    } catch (err) {
+      console.error('Chart download error:', err);
+      setError('Failed to download chart. Please try again.');
+    }
+  };
+
+  const handleGenerateCharts = async () => {
+    if (!window.confirm('This will create charts for all uploaded files that don\'t have charts yet. Continue?')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch('/api/charts/autogen', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setError('');
+        
+        // Refresh charts list
+        const chartsResponse = await fetch('/api/charts', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        
+        if (chartsResponse.ok) {
+          const chartsData = await chartsResponse.json();
+          setCharts(chartsData);
+        }
+        
+        // Show success message
+        if (result.created > 0) {
+          alert(`Successfully created ${result.created} new chart(s)!`);
+        } else {
+          alert('No new charts were created. All files either already have charts or don\'t contain valid data.');
+        }
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to generate charts');
+      }
+    } catch (err) {
+      console.error('Chart generation error:', err);
+      setError('Failed to generate charts. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -192,13 +292,22 @@ const ChartsPage: React.FC = () => {
             Create and manage your data visualizations
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="mt-4 sm:mt-0 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Create Chart
-        </button>
+        <div className="mt-4 sm:mt-0 flex gap-3">
+          <button
+            onClick={handleGenerateCharts}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors"
+          >
+            <BarChart3 className="h-4 w-4" />
+            Generate Charts
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Create Chart
+          </button>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -206,6 +315,41 @@ const ChartsPage: React.FC = () => {
         <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
           <div className="text-red-700">{error}</div>
         </div>
+      )}
+
+      {/* Create Chart Modal */}
+      {showCreateModal && (
+        <CreateChartModal
+          files={files}
+          onClose={() => setShowCreateModal(false)}
+          onCreate={async (data) => {
+            try {
+              const token = localStorage.getItem('token');
+              const res = await fetch('/api/charts', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+              });
+              if (res.ok) {
+                setShowCreateModal(false);
+                // Refresh chart list
+                const chartsResponse = await fetch('/api/charts', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (chartsResponse.ok) {
+                  const chartsData = await chartsResponse.json();
+                  setCharts(chartsData);
+                }
+              } else {
+                const errData = await res.json();
+                setError(errData.message || 'Failed to create chart');
+              }
+            } catch (err) {
+              setError('Failed to create chart');
+            }
+          }}
+        />
       )}
 
       {/* Search and Filter */}
@@ -333,12 +477,14 @@ const ChartsPage: React.FC = () => {
                 </div>
                 <div className="flex space-x-2">
                   <button
+                    onClick={() => handleDownloadChart(chart._id, chart.title)}
                     className="p-1 text-gray-400 hover:text-blue-600 hover:bg-gray-200 rounded transition-colors"
                     title="Download Chart"
                   >
                     <Download className="h-4 w-4" />
                   </button>
                   <button
+                    onClick={() => handleDeleteChart(chart._id, chart.title)}
                     className="p-1 text-gray-400 hover:text-red-600 hover:bg-gray-200 rounded transition-colors"
                     title="Delete Chart"
                   >
@@ -439,8 +585,10 @@ const ChartsPage: React.FC = () => {
                       <dd className="text-sm text-gray-900 capitalize">{selectedChart.chartType}</dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-sm text-gray-600">Source:</dt>
-                      <dd className="text-sm text-gray-900">{selectedChart.sourceFile}</dd>
+                      <dt className="text-sm text-gray-600">Source File:</dt>
+                      <dd className="text-sm text-gray-900">
+                        {String(selectedChart.sourceFile || 'Unknown')}
+                      </dd>
                     </div>
                     <div className="flex justify-between">
                       <dt className="text-sm text-gray-600">Created:</dt>

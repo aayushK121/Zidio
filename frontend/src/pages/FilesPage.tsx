@@ -9,10 +9,38 @@ import {
   Filter,
   Eye,
   Calendar,
-  HardDrive
+  HardDrive,
+  X
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend,
+  ChartOptions
+} from 'chart.js';
+import { Bar, Line, Pie, Doughnut } from 'react-chartjs-2';
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 interface FileItem {
   _id: string;
@@ -26,6 +54,21 @@ interface FileItem {
   status: 'uploading' | 'processing' | 'completed' | 'error';
 }
 
+interface ChartData {
+  _id?: string;
+  title: string;
+  description?: string;
+  chartType: 'bar' | 'line' | 'pie' | 'doughnut';
+  chartConfig: any;
+  sourceFile: string;
+  createdBy: string;
+  isPublic: boolean;
+  tags: string[];
+  viewCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const FilesPage: React.FC = () => {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,7 +76,9 @@ const FilesPage: React.FC = () => {
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'date' | 'size'>('date');
-  const { user } = useAuth();
+  const [viewModal, setViewModal] = useState<boolean>(false);
+  const [chartData, setChartData] = useState<ChartData | null>(null);
+  const { } = useAuth();
 
   // Fetch files
   const fetchFiles = async () => {
@@ -94,6 +139,13 @@ const FilesPage: React.FC = () => {
         console.log('Upload successful:', result);
         setFiles(prev => [result.file, ...prev]);
         setError('');
+        
+        // Ask user if they want to create a chart for the uploaded file
+        setTimeout(() => {
+          if (window.confirm(`File uploaded successfully! Would you like to create a chart for "${result.file.originalName}"?`)) {
+            handleView(result.file._id, result.file.originalName);
+          }
+        }, 500);
       } else {
         const errorData = await response.json();
         console.log('Upload failed with error:', errorData);
@@ -162,6 +214,151 @@ const FilesPage: React.FC = () => {
       }
     } catch (err) {
       console.error('Download error:', err);
+    }
+  };
+
+  const handleView = async (fileId: string, fileName: string) => {
+    try {
+      // First, check if chart already exists for this file
+      const chartResponse = await fetch('/api/charts', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (chartResponse.ok) {
+        const charts = await chartResponse.json();
+        const fileChart = charts.find((chart: ChartData) => chart.sourceFile === fileId);
+        
+        if (fileChart) {
+          // Chart exists, show it
+          setChartData(fileChart);
+          setViewModal(true);
+        } else {
+          // No chart exists, offer to create one
+          if (window.confirm(`No chart exists for "${fileName}". Would you like to create one?`)) {
+            // Only now trigger chart auto-generation for this specific file
+            const autogenResponse = await fetch('/api/charts/autogen', { 
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (autogenResponse.ok) {
+              // Fetch the newly created chart
+              const newChartResponse = await fetch('/api/charts', {
+                headers: {
+                  'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+              });
+              
+              if (newChartResponse.ok) {
+                const newCharts = await newChartResponse.json();
+                const newFileChart = newCharts.find((chart: ChartData) => chart.sourceFile === fileId);
+                
+                if (newFileChart) {
+                  setChartData(newFileChart);
+                  setViewModal(true);
+                } else {
+                  setError('Could not create chart for this file. The file may not contain valid data for visualization.');
+                }
+              } else {
+                setError('Failed to fetch newly created chart');
+              }
+            } else {
+              const errorData = await autogenResponse.json();
+              setError(errorData.message || 'Failed to generate chart. The file may not contain valid data for visualization.');
+            }
+          }
+        }
+      } else {
+        setError('Failed to check for existing charts');
+      }
+    } catch (err) {
+      console.error('View error:', err);
+      setError('An error occurred while viewing the file');
+    }
+  };
+
+  const handleDelete = async (fileId: string, fileName: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${fileName}"? This action cannot be undone and will also delete any associated charts.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/files/${fileId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (response.ok) {
+        setFiles(prev => prev.filter(file => file._id !== fileId));
+        setError('');
+        // File deleted successfully
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to delete file');
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError('Failed to delete file. Please try again.');
+    }
+  };
+
+  const chartOptions: ChartOptions<'bar' | 'line'> = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'top' as const,
+      },
+      title: {
+        display: false,
+      },
+    },
+    maintainAspectRatio: false,
+  };
+
+  const pieOptions: ChartOptions<'pie' | 'doughnut'> = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'top' as const,
+      },
+    },
+    maintainAspectRatio: false,
+  };
+
+  const renderChart = (chart: ChartData, height = '300px') => {
+    if (!chart || !chart.chartConfig) {
+      return <div className="text-red-500 text-center p-4">No chart data available</div>;
+    }
+    
+    if (!chart.chartConfig.labels || !chart.chartConfig.datasets || 
+        !Array.isArray(chart.chartConfig.labels) || !Array.isArray(chart.chartConfig.datasets)) {
+      return <div className="text-red-500 text-center p-4">Invalid chart data format</div>;
+    }
+    
+    if (chart.chartConfig.labels.length === 0 || chart.chartConfig.datasets.length === 0) {
+      return <div className="text-gray-500 text-center p-4">No data to display</div>;
+    }
+    
+    const baseData = chart.chartConfig;
+
+    switch (chart.chartType) {
+      case 'bar':
+        return <Bar data={baseData} options={chartOptions as any} height={height} />;
+      case 'line':
+        return <Line data={baseData} options={chartOptions as any} height={height} />;
+      case 'pie':
+        return <Pie data={baseData} options={pieOptions as any} height={height} />;
+      case 'doughnut':
+        return <Doughnut data={baseData} options={pieOptions as any} height={height} />;
+      default:
+        return <Bar data={baseData} options={chartOptions as any} height={height} />;
     }
   };
 
@@ -327,12 +524,14 @@ const FilesPage: React.FC = () => {
                     <Download className="h-4 w-4" />
                   </button>
                   <button
+                    onClick={() => handleView(file._id, file.originalName)}
                     className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-gray-100 rounded-md transition-colors"
                     title="View Details"
                   >
                     <Eye className="h-4 w-4" />
                   </button>
                   <button
+                    onClick={() => handleDelete(file._id, file.originalName)}
                     className="p-2 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-md transition-colors"
                     title="Delete"
                   >
@@ -387,8 +586,105 @@ const FilesPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Chart View Modal */}
+      {viewModal && chartData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">{chartData.title}</h2>
+                  {chartData.description && (
+                    <p className="text-gray-600 mt-1">{chartData.description}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setViewModal(false);
+                    setChartData(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-md transition-colors"
+                  title="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="h-96 mb-6 bg-gray-50 rounded-lg p-4">
+                {renderChart(chartData, '380px')}
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="font-medium text-gray-900 mb-2">Chart Information</h3>
+                  <dl className="space-y-2">
+                    <div className="flex justify-between">
+                      <dt className="text-sm text-gray-600">Type:</dt>
+                      <dd className="text-sm text-gray-900 capitalize">{chartData.chartType}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-sm text-gray-600">Created:</dt>
+                      <dd className="text-sm text-gray-900">
+                        {new Date(chartData.createdAt).toLocaleDateString()}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-sm text-gray-600">Views:</dt>
+                      <dd className="text-sm text-gray-900">{chartData.viewCount}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-sm text-gray-600">Visibility:</dt>
+                      <dd className="text-sm text-gray-900">
+                        {chartData.isPublic ? 'Public' : 'Private'}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+                
+                <div>
+                  <h3 className="font-medium text-gray-900 mb-2">Tags</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {chartData.tags && chartData.tags.length > 0 ? (
+                      chartData.tags.map((tag, index) => (
+                        <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+                          {tag}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-gray-500">No tags</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-6 flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setViewModal(false);
+                    setChartData(null);
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    // Navigate to charts page or implement chart download
+                    window.open(`/charts`, '_blank');
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-md transition-colors flex items-center gap-2"
+                >
+                  <Eye className="h-4 w-4" />
+                  View in Charts
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-};
+}
 
 export default FilesPage;

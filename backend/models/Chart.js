@@ -21,55 +21,8 @@ const chartSchema = new mongoose.Schema({
     ]
   },
   chartConfig: {
-    xAxis: {
-      field: String,
-      label: String,
-      type: {
-        type: String,
-        enum: ['category', 'value', 'time'],
-        default: 'category'
-      }
-    },
-    yAxis: {
-      field: String,
-      label: String,
-      type: {
-        type: String,
-        enum: ['value', 'category'],
-        default: 'value'
-      }
-    },
-    series: [{
-      field: String,
-      label: String,
-      color: String,
-      type: String
-    }],
-    filters: [{
-      field: String,
-      operator: String,
-      value: mongoose.Schema.Types.Mixed
-    }],
-    aggregation: {
-      type: String,
-      enum: ['sum', 'avg', 'count', 'max', 'min', 'none'],
-      default: 'none'
-    },
-    groupBy: [String],
-    sortBy: {
-      field: String,
-      order: {
-        type: String,
-        enum: ['asc', 'desc'],
-        default: 'asc'
-      }
-    },
-    limit: {
-      type: Number,
-      min: 1,
-      max: 1000,
-      default: 100
-    }
+    type: mongoose.Schema.Types.Mixed,
+    required: true
   },
   sourceFile: {
     type: mongoose.Schema.Types.ObjectId,

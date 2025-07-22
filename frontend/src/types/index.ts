@@ -57,34 +57,8 @@ export interface Chart {
   description?: string;
   chartType: 'bar' | 'line' | 'pie' | 'doughnut' | 'scatter' | 'area' | 'column';
   chartConfig: {
-    xAxis: {
-      field: string;
-      label: string;
-      type: 'category' | 'value' | 'time';
-    };
-    yAxis: {
-      field: string;
-      label: string;
-      type: 'value' | 'category';
-    };
-    series: {
-      field: string;
-      label: string;
-      color?: string;
-      type?: string;
-    }[];
-    filters?: {
-      field: string;
-      operator: string;
-      value: any;
-    }[];
-    aggregation: 'sum' | 'avg' | 'count' | 'max' | 'min' | 'none';
-    groupBy?: string[];
-    sortBy?: {
-      field: string;
-      order: 'asc' | 'desc';
-    };
-    limit: number;
+    labels: string[];
+    datasets: any[];
   };
   sourceFile: string;
   createdBy: string;
