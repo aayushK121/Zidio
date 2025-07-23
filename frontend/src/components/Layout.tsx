@@ -11,7 +11,7 @@ const Layout: React.FC = () => {
     { name: 'Dashboard', href: '/', icon: Home },
     { name: 'Files', href: '/files', icon: Upload },
     { name: 'Charts', href: '/charts', icon: BarChart3 },
-    { name: 'Settings', href: '/settings', icon: Settings },
+    // { name: 'Settings', href: '/settings', icon: Settings },
   ];
 
   const isActive = (path: string) => {
